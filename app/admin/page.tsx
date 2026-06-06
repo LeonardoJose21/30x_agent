@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 
 type Doc = { filename: string; chunks: number };
+type UnansweredQuery = { query: string; count: number; escalation_target: string };
 
 const E = "cubic-bezier(0.23, 1, 0.32, 1)";
 
@@ -22,6 +23,8 @@ export default function AdminPage() {
   const [checking, setChecking] = useState(false);
 
   const [docs, setDocs] = useState<Doc[]>([]);
+  const [unanswered, setUnanswered] = useState<UnansweredQuery[]>([]);
+  const [clearingUnanswered, setClearingUnanswered] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<Doc | null>(null);
@@ -50,6 +53,9 @@ export default function AdminPage() {
       }
       const data = await res.json();
       setDocs(data.documents ?? []);
+      const uRes = await fetch("/api/admin/unanswered", { headers: h });
+      const uData = await uRes.json();
+      setUnanswered(uData.queries ?? []);
       setAuthed(true);
     } catch {
       setAuthErr("Connection error.");
@@ -61,9 +67,21 @@ export default function AdminPage() {
   // ── Data ────────────────────────────────────────────────────────────────────
 
   async function refresh() {
-    const res = await fetch("/api/admin/upload", { headers: h });
-    const data = await res.json();
-    setDocs(data.documents ?? []);
+    const [docsRes, unansweredRes] = await Promise.all([
+      fetch("/api/admin/upload", { headers: h }),
+      fetch("/api/admin/unanswered", { headers: h }),
+    ]);
+    const docsData = await docsRes.json();
+    const unansweredData = await unansweredRes.json();
+    setDocs(docsData.documents ?? []);
+    setUnanswered(unansweredData.queries ?? []);
+  }
+
+  async function clearUnanswered() {
+    setClearingUnanswered(true);
+    await fetch("/api/admin/unanswered", { method: "DELETE", headers: h });
+    setUnanswered([]);
+    setClearingUnanswered(false);
   }
 
   // ── Upload ──────────────────────────────────────────────────────────────────
@@ -445,6 +463,109 @@ export default function AdminPage() {
               </div>
             );
           })
+        )}
+      </div>
+
+      {/* ── Unanswered queries ── */}
+      <div style={{ marginBottom: "40px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "16px 0 12px",
+            borderTop: "1px solid #1A1A1A",
+          }}
+        >
+          <span
+            style={{
+              fontSize: "11px",
+              fontWeight: 600,
+              color: "#444444",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
+            Unanswered Questions
+          </span>
+          {unanswered.length > 0 && (
+            <button
+              onClick={clearUnanswered}
+              disabled={clearingUnanswered}
+              style={{
+                background: "transparent",
+                color: clearingUnanswered ? "#333333" : "#FF4444",
+                border: "none",
+                padding: "0",
+                fontSize: "11px",
+                cursor: clearingUnanswered ? "wait" : "pointer",
+                fontFamily: "inherit",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              {clearingUnanswered ? "Clearing…" : "Clear all"}
+            </button>
+          )}
+        </div>
+
+        {unanswered.length === 0 ? (
+          <p
+            style={{
+              color: "#333333",
+              fontSize: "13px",
+              padding: "8px 0 16px",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            No unanswered queries yet.
+          </p>
+        ) : (
+          unanswered.map((q, i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "16px",
+                padding: "10px 0",
+                borderBottom: "1px solid #111111",
+              }}
+            >
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: "13px",
+                  color: "#FFFFFF",
+                  letterSpacing: "-0.01em",
+                  lineHeight: 1.5,
+                }}
+              >
+                {q.query}
+              </span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: "#CAFF00",
+                  fontFamily: "var(--font-geist-mono)",
+                  flexShrink: 0,
+                }}
+              >
+                ×{q.count}
+              </span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: "#444444",
+                  fontFamily: "var(--font-geist-mono)",
+                  flexShrink: 0,
+                  maxWidth: "160px",
+                  textAlign: "right",
+                }}
+              >
+                {q.escalation_target}
+              </span>
+            </div>
+          ))
         )}
       </div>
 

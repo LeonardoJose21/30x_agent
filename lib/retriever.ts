@@ -47,9 +47,11 @@ export async function getRelevantContext(
     console.log(`[retriever] all scores below ${CONFIDENCE_THRESHOLD} — running fallback`);
 
     const totalChunks = await getTotalChunkCount();
+    let escalationTarget: string;
 
     if (totalChunks <= SMALL_CORPUS_LIMIT) {
       // Small corpus: fetch a wider slice and let the model sort it out
+      escalationTarget = "expanded_search";
       console.log(`[retriever] small corpus (${totalChunks} chunks) — expanding to topK=${FALLBACK_TOP_K}`);
       data = await search(queryEmbedding, FALLBACK_TOP_K);
       data.forEach((r) =>
@@ -65,8 +67,17 @@ export async function getRelevantContext(
       //    re-rank by max similarity score, take topK.
       // This avoids loading the full corpus into memory while recovering from
       // low-similarity queries at scale.
+      escalationTarget = "query_rephrasing_needed";
       console.log(`[retriever] large corpus (${totalChunks} chunks) — skipping fallback (TODO: query rephrasing)`);
     }
+
+    // Log to unanswered_queries for continuous improvement tracking
+    supabase
+      .from("unanswered_queries")
+      .insert({ query, escalation_target: escalationTarget })
+      .then(({ error }) => {
+        if (error) console.error("[retriever] failed to log unanswered query:", error.message);
+      });
   }
 
   const relevant = data.filter((r) => r.similarity >= 0.2);
