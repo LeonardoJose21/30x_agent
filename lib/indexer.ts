@@ -1,7 +1,5 @@
 import fs from "fs";
 import path from "path";
-type PdfParseResult = { text: string };
-type PdfParseFn = (buf: Buffer) => Promise<PdfParseResult>;
 import { get_encoding } from "tiktoken";
 import { supabase } from "./supabase";
 import { getProvider } from "./providers";
@@ -34,9 +32,8 @@ export async function indexPDF(
   const buffer = fs.readFileSync(filePath);
   // Import the lib directly — pdf-parse/index.js runs a fs.readFileSync at module
   // load time (require.main check) which breaks under Next.js's bundler.
-  const mod = await import("pdf-parse/lib/pdf-parse.js");
-  const pdfParse = (mod.default ?? mod) as PdfParseFn;
-  const { text } = await pdfParse(buffer);
+  const pdfParse = await import("pdf-parse/lib/pdf-parse.js");
+  const { text } = await pdfParse.default(buffer);
   console.log(`[indexer] ${filename} raw_chars=${text.length}`);
   if (text.length < 500) {
     throw new Error(

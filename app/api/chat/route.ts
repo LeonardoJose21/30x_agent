@@ -39,7 +39,7 @@ function logUnanswered(query: string, target: string) {
   supabase
     .from("unanswered_queries")
     .insert({ query, escalation_target: target })
-    .then(({ error }) => {
+    .then(({ error }: { error: { message: string } | null }) => {
       if (error) console.error("[chat] failed to log unanswered query:", error.message);
       else console.log(`[chat] logged unanswered: "${query.slice(0, 60)}" → ${target}`);
     });

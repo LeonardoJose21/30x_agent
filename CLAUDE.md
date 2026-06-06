@@ -19,7 +19,7 @@ lib/providers/gemini.ts       → Gemini implementation
 lib/providers/index.ts        → factory: getProvider()
 lib/indexer.ts                → indexPDF(): pdf-parse → tiktoken chunks (500t/50 overlap) → embed → Supabase upsert
 lib/retriever.ts              → getRelevantContext(): embed query → match_documents RPC → formatted string
-app/api/chat/route.ts         → RAG + streaming chat
+app/api/chat/route.ts         → RAG + streaming chat (POST: embed query → retrieve context → stream response)
 app/api/admin/upload/route.ts → GET list | POST upload+index | DELETE chunks+file | PATCH reindex
 app/admin/page.tsx            → admin UI: auth gate, doc list, upload zone
 app/page.tsx                  → chat UI

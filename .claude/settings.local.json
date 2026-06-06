@@ -5,7 +5,10 @@
       "Bash(mkdir:*)",
       "Bash(node:*)",
       "Bash(ls:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Skill(impeccable)",
+      "Bash(git:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

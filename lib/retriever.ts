@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { getProvider } from "./providers";
+import type { MatchResult } from "./supabase";
 
 const CONFIDENCE_THRESHOLD = 0.5;
 const FALLBACK_TOP_K = 14;
@@ -16,13 +17,13 @@ async function getTotalChunkCount(): Promise<number> {
 async function search(
   queryEmbedding: number[],
   topK: number
-) {
+): Promise<MatchResult[]> {
   const { data, error } = await supabase.rpc("match_documents", {
     query_embedding: queryEmbedding,
     match_count: topK,
   });
   if (error) throw new Error(`match_documents failed: ${error.message}`);
-  return data ?? [];
+  return (data ?? []) as MatchResult[];
 }
 
 export async function getRelevantContext(
