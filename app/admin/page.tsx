@@ -520,7 +520,8 @@ export default function AdminPage() {
             No unanswered queries yet.
           </p>
         ) : (
-          unanswered.map((q, i) => (
+          <div style={{ maxHeight: "280px", overflowY: "auto" }}>
+          {unanswered.map((q, i) => (
             <div
               key={i}
               style={{
@@ -565,7 +566,8 @@ export default function AdminPage() {
                 {q.escalation_target}
               </span>
             </div>
-          ))
+          ))}
+          </div>
         )}
       </div>
 

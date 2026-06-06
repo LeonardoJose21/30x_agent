@@ -17,6 +17,13 @@ export type MatchResult = {
   similarity: number;
 };
 
+export type UnansweredQuery = {
+  id: string;
+  query: string;
+  escalation_target: string;
+  created_at: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -24,6 +31,11 @@ export type Database = {
         Row: Document;
         Insert: Omit<Document, 'id' | 'created_at'>;
         Update: Partial<Omit<Document, 'id' | 'created_at'>>;
+      };
+      unanswered_queries: {
+        Row: UnansweredQuery;
+        Insert: Omit<UnansweredQuery, 'id' | 'created_at'>;
+        Update: Partial<Omit<UnansweredQuery, 'id' | 'created_at'>>;
       };
     };
     Functions: {
