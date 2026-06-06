@@ -10,6 +10,8 @@ for new 30X team members using only internal documentation.
 - Streaming responses via ReadableStream
 
 ## Folder structure
+lib/supabase.ts               → typed Supabase client + Database/Document/MatchResult types
+supabase/migrations/001_documents.sql → pgvector extension, documents table, ivfflat index, match_documents fn
 lib/providers/base.ts         → LLMProvider interface
 lib/providers/anthropic.ts    → Claude implementation
 lib/providers/openai.ts       → OpenAI implementation
