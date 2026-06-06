@@ -7,7 +7,7 @@ create table if not exists documents (
   filename    text        not null,
   chunk_index int         not null,
   content     text        not null,
-  embedding   vector(1536),
+  embedding   vector(768),
   created_at  timestamptz not null default now()
 );
 
@@ -19,7 +19,7 @@ create index if not exists documents_embedding_idx
 
 -- Similarity search function
 create or replace function match_documents(
-  query_embedding vector(1536),
+  query_embedding vector(768),
   match_count     int default 5
 )
 returns table (

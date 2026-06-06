@@ -1,6 +1,81 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Fragment } from "react";
+
+// Lightweight markdown renderer — handles bold, bullets, and nested bullets
+function MdLine({ text }: { text: string }) {
+  // Split on **bold** spans
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.startsWith("**") && p.endsWith("**") ? (
+          <strong key={i} style={{ fontWeight: 600 }}>
+            {p.slice(2, -2)}
+          </strong>
+        ) : (
+          <Fragment key={i}>{p}</Fragment>
+        )
+      )}
+    </>
+  );
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  const lines = content.split("\n");
+
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const bulletMatch = line.match(/^(\s*)[\*\-]\s+(.*)/);
+
+    if (bulletMatch) {
+      // Collect consecutive bullet lines into a list
+      const listItems: React.ReactNode[] = [];
+      while (i < lines.length) {
+        const l = lines[i];
+        const m = l.match(/^(\s*)[\*\-]\s+(.*)/);
+        if (!m) break;
+        const indent = m[1].length;
+        listItems.push(
+          <li
+            key={i}
+            style={{
+              marginLeft: indent > 0 ? "16px" : "0",
+              listStyleType: indent > 0 ? "circle" : "disc",
+              marginBottom: "2px",
+            }}
+          >
+            <MdLine text={m[2]} />
+          </li>
+        );
+        i++;
+      }
+      elements.push(
+        <ul
+          key={`ul-${i}`}
+          style={{ paddingLeft: "18px", margin: "4px 0" }}
+        >
+          {listItems}
+        </ul>
+      );
+    } else if (line.trim() === "") {
+      elements.push(<div key={i} style={{ height: "6px" }} />);
+      i++;
+    } else {
+      elements.push(
+        <p key={i} style={{ margin: 0 }}>
+          <MdLine text={line} />
+        </p>
+      );
+      i++;
+    }
+  }
+
+  return <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>{elements}</div>;
+}
 
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -336,12 +411,16 @@ export default function ChatPage() {
                       fontSize: "14px",
                       lineHeight: 1.65,
                       letterSpacing: "-0.01em",
-                      whiteSpace: "pre-wrap",
                       wordBreak: "break-word",
                       fontWeight: msg.role === "user" ? 500 : 400,
+                      whiteSpace: msg.role === "user" ? "pre-wrap" : undefined,
                     }}
                   >
-                    {msg.content}
+                    {msg.role === "user" ? (
+                      msg.content
+                    ) : (
+                      <MarkdownContent content={msg.content} />
+                    )}
                   </div>
                 </div>
               ))}

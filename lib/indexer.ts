@@ -1,11 +1,12 @@
 import fs from "fs";
 import path from "path";
-import pdfParse from "pdf-parse";
+type PdfParseResult = { text: string };
+type PdfParseFn = (buf: Buffer) => Promise<PdfParseResult>;
 import { get_encoding } from "tiktoken";
 import { supabase } from "./supabase";
 import { getProvider } from "./providers";
 
-const CHUNK_TOKENS = 500;
+const CHUNK_TOKENS = 256;
 const OVERLAP_TOKENS = 50;
 
 function chunkText(text: string): string[] {
@@ -31,8 +32,22 @@ export async function indexPDF(
 ): Promise<{ filename: string; totalChunks: number }> {
   const filename = path.basename(filePath);
   const buffer = fs.readFileSync(filePath);
+  // Import the lib directly — pdf-parse/index.js runs a fs.readFileSync at module
+  // load time (require.main check) which breaks under Next.js's bundler.
+  const mod = await import("pdf-parse/lib/pdf-parse.js");
+  const pdfParse = (mod.default ?? mod) as PdfParseFn;
   const { text } = await pdfParse(buffer);
+  console.log(`[indexer] ${filename} raw_chars=${text.length}`);
+  if (text.length < 500) {
+    throw new Error(
+      `[indexer] PDF extraction failed or returned garbage for "${filename}" (only ${text.length} chars). Check if the PDF is scanned/image-based.`
+    );
+  }
   const chunks = chunkText(text);
+  console.log(`[indexer] ${filename} chunks=${chunks.length}`);
+  chunks.forEach((c, i) =>
+    console.log(`[indexer]   chunk[${i}] chars=${c.length}`)
+  );
 
   const provider = getProvider();
   const embeddings = await Promise.all(chunks.map((chunk) => provider.embed(chunk)));

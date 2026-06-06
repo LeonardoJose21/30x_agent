@@ -25,8 +25,14 @@ export async function POST(req: NextRequest) {
   const filePath = path.join(DOCS_DIR, file.name);
   fs.writeFileSync(filePath, Buffer.from(await file.arrayBuffer()));
 
-  const { filename, totalChunks } = await indexPDF(filePath);
-  return NextResponse.json({ success: true, filename, chunks: totalChunks });
+  try {
+    const { filename, totalChunks } = await indexPDF(filePath);
+    return NextResponse.json({ success: true, filename, chunks: totalChunks });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[upload] indexPDF failed:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 
 // GET — list distinct filenames + chunk counts

@@ -10,7 +10,7 @@ export class GeminiProvider implements LLMProvider {
 
   async chat(messages: Message[], systemPrompt: string): Promise<ReadableStream> {
     const model = this.client.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-2.5-flash",
       systemInstruction: systemPrompt,
     });
 
@@ -36,8 +36,25 @@ export class GeminiProvider implements LLMProvider {
   }
 
   async embed(text: string): Promise<number[]> {
-    const model = this.client.getGenerativeModel({ model: "text-embedding-004" });
-    const result = await model.embedContent(text);
-    return result.embedding.values;
+    // @google/generative-ai SDK uses v1beta — text-embedding-004 is v1 only.
+    // Call the v1 REST endpoint directly instead.
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-embedding-001:embedContent?key=${process.env.GOOGLE_AI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "models/gemini-embedding-001",
+          content: { parts: [{ text }] },
+          outputDimensionality: 768,
+        }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Gemini embed failed: ${res.status} ${err}`);
+    }
+    const data = await res.json();
+    return data.embedding.values as number[];
   }
 }

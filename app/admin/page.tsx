@@ -486,13 +486,12 @@ export default function AdminPage() {
             Indexing…
           </p>
         ) : uploadResult ? (
-          <div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
             <p
               style={{
                 color: "#CAFF00",
                 fontSize: "13px",
                 fontWeight: 600,
-                marginBottom: "4px",
                 fontFamily: "var(--font-geist-mono)",
                 letterSpacing: "-0.02em",
               }}
@@ -508,6 +507,36 @@ export default function AdminPage() {
             >
               {uploadResult.chunks} chunks indexed
             </p>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setUploadResult(null);
+                setUploadErr("");
+                setTimeout(() => fileRef.current?.click(), 50);
+              }}
+              style={{
+                marginTop: "4px",
+                background: "transparent",
+                border: "1px solid #2A2A2A",
+                color: "#888888",
+                fontSize: "11px",
+                padding: "4px 12px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                letterSpacing: "-0.01em",
+                transition: `border-color 150ms ${E}, color 150ms ${E}`,
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor = "#CAFF00";
+                (e.currentTarget as HTMLButtonElement).style.color = "#CAFF00";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor = "#2A2A2A";
+                (e.currentTarget as HTMLButtonElement).style.color = "#888888";
+              }}
+            >
+              + Add another
+            </button>
           </div>
         ) : (
           <>
