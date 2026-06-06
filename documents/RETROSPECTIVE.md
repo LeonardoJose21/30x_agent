@@ -11,22 +11,20 @@ Agente conversacional de onboarding para nuevos miembros del equipo 30X. Respond
 ```
 Usuario escribe → /api/chat
     ↓
-Intent check — ¿es un mensaje conversacional? (single word, "gracias", "ok", referencia a la conv)
+Intent check — ¿es un mensaje conversacional?
     ↓ no                          ↓ sí
 Embed query                   Skip retrieval
 (gemini-embedding-001)
     ↓
-Supabase pgvector
-match_documents RPC
-cosine similarity
+Supabase pgvector cosine similarity
     ↓
 Top chunks filtrados (sim ≥ 0.2)
     ↓
-Si todos < 0.5 → fallback topK=14 (corpus ≤ 50 chunks)
+Si todos < 0.5 → fallback topK=14
     ↓
 Contexto inyectado en system prompt
     ↓
-Gemini 2.5 Flash genera respuesta
+Gemini 2.5 Flash genera respuesta (streaming)
     ↓
 TransformStream intercepta el stream
 → pasa chunks al cliente en tiempo real
@@ -41,7 +39,7 @@ Cliente recibe stream y renderiza markdown
 - **Embeddings**: gemini-embedding-001 (768 dims) | voyage-3 | text-embedding-3-small
 - **Vector DB**: Supabase pgvector, IVFFlat index, cosine similarity
 - **Chunking**: pdf-parse → tiktoken cl100k_base, 256 tokens, 50 overlap
-- **Admin**: UI en `/admin` con auth gate, lista de docs, re-index, upload, unanswered queries
+- **Admin**: `/admin` con auth gate, lista de docs, re-index, upload, unanswered queries
 
 ---
 
@@ -49,160 +47,47 @@ Cliente recibe stream y renderiza markdown
 
 ---
 
-### 1. pdf-parse no se podía importar en Next.js
+### 1. El agente siempre respondía "No encontré esa información"
 
-**Error**: `Export default doesn't exist in target module`
+**Por qué era un problema**: El agente era completamente inútil. Un miembro nuevo preguntaba cosas básicas — misión, equipo, programas — y el agente negaba tener información aunque los documentos sí la contenían. El propósito central del proyecto era fallando.
 
-**Causa**: Next.js (Turbopack) trata los módulos CJS diferente. `pdf-parse/index.js` ejecuta un `fs.readFileSync("test/data/05-versions-space.pdf")` al momento de ser importado porque el check de `require.main` falla bajo el bundler. Resultado: crash en tiempo de importación.
-
-**Solución**:
-1. Añadir `serverExternalPackages: ["pdf-parse", "tiktoken"]` en `next.config.ts`
-2. Importar el módulo interno directamente para saltarse `index.js`:
-```typescript
-const mod = await import("pdf-parse/lib/pdf-parse.js");
-const pdfParse = (mod.default ?? mod) as PdfParseFn;
-```
-3. Bajar de `pdf-parse@2.x` a `pdf-parse@1.1.1` — v2 cambió la API a clase, ya no exporta función
-
----
-
-### 2. Gemini embeddings: modelo no encontrado (múltiples rondas)
-
-**Error 1**: `text-embedding-004 is not found for API version v1beta`
-
-**Causa**: El SDK `@google/generative-ai` usa el endpoint v1beta. El modelo `text-embedding-004` solo existe en v1.
-
-**Error 2**: `models/embedding-001 is not found for API version v1`
-
-**Causa**: El nombre también era incorrecto.
-
-**Solución**: Llamar directamente al REST endpoint v1 y usar el nombre correcto del modelo descubierto via ListModels:
-```typescript
-fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-embedding-001:embedContent?key=...`)
-// con outputDimensionality: 768
-```
-
----
-
-### 3. Dimensión de vectores incorrecta (1536 vs 768)
-
-**Error**: Mismatch entre columna `vector(1536)` en Supabase y los embeddings de 768 dims que produce `gemini-embedding-001`.
-
-**Causa**: La migración original usó 1536 (dimensión de OpenAI). Al cambiar a Gemini no se actualizó.
-
-**Solución**: Actualizar `001_documents.sql` a `vector(768)` y re-crear la tabla en Supabase. Re-indexar todos los documentos.
-
----
-
-### 4. Modelo de chat deprecado
-
-**Error**: `gemini-2.0-flash is no longer available`
-
-**Solución**: Actualizar a `gemini-2.5-flash` (verificado via ListModels API).
-
----
-
-### 5. POST /api/chat → 404
-
-**Causa**: El route handler `app/api/chat/route.ts` nunca había sido creado. El proyecto arrancó sin él.
-
-**Solución**: Crear el archivo con la lógica completa de RAG + streaming.
-
----
-
-### 6. El agente siempre respondía "No encontré esa información"
-
-**Síntoma**: Aun con `context_chars=2935`, el modelo negaba tener información.
-
-**Causas**:
-- System prompt demasiado estricto ("si no está exactamente, di que no")
-- Solo 7 chunks totales para 3 documentos (chunks de 500 tokens en docs cortos = muy pocas piezas)
-- Threshold de similaridad en 0.4 bloqueaba chunks válidos
-- Embeddings corruptos de intentos fallidos de modelos anteriores
-
-**Soluciones**:
-1. Suavizar system prompt: "si hay información parcial o relacionada, úsala"
-2. Reducir chunk size: 500 → 256 tokens (7 chunks → 14 chunks)
-3. Bajar threshold: 0.4 → 0.2
-4. Re-indexar todos los documentos tras corregir el modelo de embeddings
-
----
-
-### 7. Solo 7 chunks para 3 documentos
-
-**Hipótesis inicial**: Bug en la función de chunking.
-
-**Diagnóstico**: Correr `scripts/verify-chunks.mjs` sin tocar Supabase reveló los conteos reales.
-
-**Realidad**: No había bug. Con docs de ~600–1100 tokens y chunks de 500 tokens, matemáticamente salen 2–3 chunks por documento. El chunking era correcto — el tamaño era el problema.
-
-**Solución**: Reducir `CHUNK_TOKENS` de 500 a 256. Ahora produce ~14 chunks.
-
----
-
-### 8. pdf-parse vs pdfjs-dist
-
-**Pregunta**: ¿Está pdf-parse extrayendo mal el contenido?
-
-**Diagnóstico**: Script `scripts/compare-parsers.mjs` comparó ambas librerías en los 4 PDFs.
-
-**Resultado**:
-```
-30X_Doc1: pdf-parse 2530 chars | pdfjs-dist 2602 chars (+3%)
-30X_Doc2: pdf-parse 2953 chars | pdfjs-dist 3153 chars (+7%)
-30X_Doc3: pdf-parse 4576 chars | pdfjs-dist 4806 chars (+5%)
-```
-
-**Conclusión**: Diferencia insignificante. pdf-parse está bien. Los docs son genuinamente cortos.
-
----
-
-### 9. Unanswered queries no se guardaban en Supabase
-
-**Causa 1**: La tabla `unanswered_queries` no estaba en el tipo `Database` en `lib/supabase.ts`. El cliente tipado de Supabase rechazaba `.from("unanswered_queries")` antes de hacer la llamada.
-
-**Causa 2**: El trigger original era `allLowConfidence` (todos los chunks < 0.5). Pero consultas como "¿cuándo sale 30X a la bolsa?" devolvían sim=0.522 — por encima del threshold — así que nunca disparaba.
-
-**Causa 3**: El fallback de `context.length === 0` tampoco disparaba porque siempre hay *algo* de contexto retornado (chunks pasan el filtro de 0.2).
+**Qué lo causaba**:
+- Los documentos se habían indexado con un modelo de embeddings roto (embeddings inválidos almacenados en Supabase). Las búsquedas de similaridad devolvían basura.
+- Además, los chunks eran de 500 tokens — demasiado grandes para documentos cortos. Resultado: solo 7 chunks para 3 documentos. Muy pocas piezas para encontrar respuestas específicas.
+- El system prompt era demasiado estricto: si la respuesta no estaba palabra por palabra, el modelo decía que no sabía.
 
 **Solución**:
-1. Añadir `unanswered_queries` al tipo `Database` en `lib/supabase.ts`
-2. Interceptar el stream con `TransformStream` — leer la respuesta completa del modelo, y si contiene `"no encontré"`, hacer el log:
-```typescript
-const { readable, writable } = new TransformStream({
-  transform(chunk, controller) {
-    fullResponse += new TextDecoder().decode(chunk);
-    controller.enqueue(chunk);
-  },
-  flush() {
-    if (fullResponse.toLowerCase().includes("no encontré")) {
-      logUnanswered(query, "no_answer_in_docs");
-    }
-  },
-});
-rawStream.pipeTo(writable);
-```
+1. Corregir el modelo de embeddings y re-indexar todos los documentos desde cero
+2. Reducir el tamaño de chunk de 500 a 256 tokens — pasamos de 7 a 14 chunks, cada uno más preciso
+3. Suavizar el system prompt: si hay información parcial o relacionada, usarla
 
 ---
 
-### 10. Retrieval innecesario en mensajes conversacionales
+### 2. El agente no sabía cuándo escalar ni a quién
 
-**Problema**: Cada mensaje — incluyendo "gracias", "ok", "¿qué me preguntaste?" — disparaba embed + búsqueda en Supabase. Ruido en logs, latencia innecesaria.
+**Por qué era un problema**: Cuando el agente no encontraba información, simplemente decía "No encontré esa información en los documentos internos de 30X" y se quedaba ahí. Para un miembro nuevo eso es un callejón sin salida — no sabe a quién recurrir, se queda bloqueado.
 
-**Solución**: Intent check antes de retrieval. Evolución del diseño:
+El requerimiento RF-03 pedía explícitamente que el agente orientara al usuario con la persona correcta según el tema. No estaba implementado.
 
-- **v1**: Longitud < 12 chars → demasiado agresivo, bloqueaba preguntas cortas válidas
-- **v2**: Solo single word → muy conservador, dejaba pasar "ok gracias"
-- **v3 final**: Tres capas:
-```typescript
-function isConversational(text: string): boolean {
-  const t = text.toLowerCase().trim();
-  if (!t.includes(" ")) return true; // single word
-  if (/^(gracias|ok|sí|entendido|perfecto|claro|hola|dale|sale...)/.test(t)) return true;
-  if (/\b(recuerd|conversaci[oó]n|que (dijiste|dije)|anterior(es)?)\b/.test(t)) return true;
-  return false;
-}
-```
+**Solución**: Añadir al system prompt una tabla de escalado por categoría de pregunta — si no sabe sobre estructura o roles, dice que hable con el Chief of Staff; si es sobre herramientas, con el líder de Tecnología; etc. El agente ahora cierra cada respuesta negativa con una dirección accionable.
+
+---
+
+### 3. No había forma de saber qué preguntas el agente no podía responder
+
+**Por qué era un problema**: El agente fallaba en silencio. No había visibilidad de qué información le faltaba ni con qué frecuencia. Sin eso, es imposible mejorar la base de conocimiento — no sabes qué documentos agregar ni qué actualizar.
+
+**Qué lo causaba**: El primer intento de detección usaba un umbral de similaridad (si todos los scores < 0.5, loggear). El problema es que queries como "¿cuándo sale 30X a la bolsa?" devolvían scores de 0.522 — técnicamente sobre el umbral — y nunca se loggeaban aunque el agente no pudiera responder.
+
+**Solución**: En vez de inferir si el agente "sabe" a partir de los scores de retrieval, interceptar el stream de respuesta y leer lo que el modelo realmente dice. Si la respuesta contiene "no encontré", se registra en Supabase con la query y la categoría. El admin panel muestra estas queries agrupadas por frecuencia para saber qué documentos agregar.
+
+---
+
+### 4. El agente procesaba cada mensaje como si fuera una consulta a los documentos
+
+**Por qué era un problema**: Mensajes como "gracias", "ok", "¿qué me preguntaste?" disparaban el proceso completo de embedding y búsqueda en Supabase — operaciones que cuestan tiempo y recursos. Para esos mensajes, el contexto recuperado era irrelevante y solo añadía ruido. Un agente que tarda en responder "gracias" se siente torpe.
+
+**Solución**: Añadir un intent check antes del retrieval. Si el mensaje es una sola palabra, empieza con una palabra conversacional (ok, gracias, sí, hola, entendido...) o hace referencia a la conversación misma (recuerdas, que dijiste, conversación anterior), se salta el retrieval por completo y va directo al modelo. La conversación fluye naturalmente sin latencia innecesaria.
 
 ---
 
@@ -220,9 +105,8 @@ function isConversational(text: string): boolean {
 
 ## Mejoras adicionales implementadas (fuera de scope original)
 
-- **Admin panel** con auth gate, lista de docs, upload drag & drop, re-index por doc o masivo
-- **Unanswered queries tracking** — tabla en Supabase, vista en admin, botón de limpieza
-- **Confidence fallback** — si todos los scores < 0.5, amplía búsqueda a topK=14
-- **Markdown rendering** inline en el chat (bold, bullets, listas anidadas)
-- **Parser validation** — guard de 500 chars mínimos al indexar, log de chars por chunk
-- **Logging detallado** — sim scores, context_chars, skip_retrieval flag por cada request
+- **Admin panel** — gestión de documentos, upload drag & drop, re-index individual o masivo
+- **Unanswered queries tracking** — registro automático, vista en admin con frecuencia, botón de limpieza
+- **Confidence fallback** — si los scores son bajos, amplía la búsqueda automáticamente
+- **Markdown rendering** — el chat renderiza bold, bullets y listas anidadas como las produce el modelo
+- **Validación de indexación** — guard que detecta PDFs vacíos o escaneados antes de indexar
