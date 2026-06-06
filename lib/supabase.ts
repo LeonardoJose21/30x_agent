@@ -51,3 +51,15 @@ const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Admin client — service role key, bypasses RLS. Use only in server-side API routes.
+// Lazy so that missing env var doesn't crash at build time.
+let _supabaseAdmin: ReturnType<typeof createClient> | null = null;
+export function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+    _supabaseAdmin = createClient(supabaseUrl, key);
+  }
+  return _supabaseAdmin;
+}

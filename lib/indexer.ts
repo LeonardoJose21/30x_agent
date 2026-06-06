@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { get_encoding } from "tiktoken";
-import { supabase } from "./supabase";
+import { getSupabaseAdmin } from "./supabase";
 import { getProvider } from "./providers";
 
 const CHUNK_TOKENS = 256;
@@ -25,13 +25,11 @@ function chunkText(text: string): string[] {
   return chunks;
 }
 
-export async function indexPDF(
-  filePath: string
+// Shared indexing logic that operates on a Buffer directly (no disk access needed)
+async function indexFromBuffer(
+  buffer: Buffer,
+  filename: string
 ): Promise<{ filename: string; totalChunks: number }> {
-  const filename = path.basename(filePath);
-  const buffer = fs.readFileSync(filePath);
-  // Import the lib directly — pdf-parse/index.js runs a fs.readFileSync at module
-  // load time (require.main check) which breaks under Next.js's bundler.
   const pdfParse = await import("pdf-parse/lib/pdf-parse.js");
   const { text } = await pdfParse.default(buffer);
   console.log(`[indexer] ${filename} raw_chars=${text.length}`);
@@ -49,7 +47,10 @@ export async function indexPDF(
   const provider = getProvider();
   const embeddings = await Promise.all(chunks.map((chunk) => provider.embed(chunk)));
 
-  const { error: deleteError } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = getSupabaseAdmin() as any;
+
+  const { error: deleteError } = await db
     .from("documents")
     .delete()
     .eq("filename", filename);
@@ -62,8 +63,25 @@ export async function indexPDF(
     embedding: embeddings[i],
   }));
 
-  const { error: insertError } = await supabase.from("documents").insert(rows);
+  const { error: insertError } = await db.from("documents").insert(rows);
   if (insertError) throw new Error(`Insert failed: ${insertError.message}`);
 
   return { filename, totalChunks: chunks.length };
+}
+
+// Index from a Buffer — used by the upload route (no disk I/O needed)
+export async function indexBuffer(
+  buffer: Buffer,
+  filename: string
+): Promise<{ filename: string; totalChunks: number }> {
+  return indexFromBuffer(buffer, filename);
+}
+
+// Index from a file path — used by the CLI script (scripts/index-docs.ts)
+export async function indexPDF(
+  filePath: string
+): Promise<{ filename: string; totalChunks: number }> {
+  const filename = path.basename(filePath);
+  const buffer = fs.readFileSync(filePath);
+  return indexFromBuffer(buffer, filename);
 }

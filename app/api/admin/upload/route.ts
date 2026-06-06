@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import { indexPDF } from "@/lib/indexer";
-import { supabase } from "@/lib/supabase";
+import { indexBuffer } from "@/lib/indexer";
+import { supabase, getSupabaseAdmin } from "@/lib/supabase";
 
-const DOCS_DIR = path.join(process.cwd(), "documents");
+const BUCKET = "documents";
 
 function isAuthed(req: NextRequest): boolean {
   return req.headers.get("x-admin-secret") === process.env.ADMIN_SECRET;
 }
 
-// POST — upload PDF, save to /documents, index it
+// POST — upload PDF to Supabase Storage, then index it
 export async function POST(req: NextRequest) {
   if (!isAuthed(req))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,17 +18,25 @@ export async function POST(req: NextRequest) {
   if (!file)
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
 
-  if (!fs.existsSync(DOCS_DIR)) fs.mkdirSync(DOCS_DIR, { recursive: true });
+  const buffer = Buffer.from(await file.arrayBuffer());
 
-  const filePath = path.join(DOCS_DIR, file.name);
-  fs.writeFileSync(filePath, Buffer.from(await file.arrayBuffer()));
+  // Upload to Supabase Storage (upsert so re-upload works)
+  const { error: uploadError } = await getSupabaseAdmin().storage
+    .from(BUCKET)
+    .upload(file.name, buffer, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+
+  if (uploadError)
+    return NextResponse.json({ error: uploadError.message }, { status: 500 });
 
   try {
-    const { filename, totalChunks } = await indexPDF(filePath);
+    const { filename, totalChunks } = await indexBuffer(buffer, file.name);
     return NextResponse.json({ success: true, filename, chunks: totalChunks });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[upload] indexPDF failed:", msg);
+    console.error("[upload] indexBuffer failed:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
@@ -59,7 +65,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ documents });
 }
 
-// DELETE — remove all chunks from Supabase + delete file from disk
+// DELETE — remove all chunks from Supabase + delete file from Storage
 export async function DELETE(req: NextRequest) {
   if (!isAuthed(req))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -68,24 +74,21 @@ export async function DELETE(req: NextRequest) {
   if (!filename)
     return NextResponse.json({ error: "filename required" }, { status: 400 });
 
-  const { error } = await supabase
+  const { error: dbError } = await supabase
     .from("documents")
     .delete()
     .eq("filename", filename);
 
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (dbError)
+    return NextResponse.json({ error: dbError.message }, { status: 500 });
 
-  try {
-    fs.unlinkSync(path.join(DOCS_DIR, filename));
-  } catch {
-    // File may not exist on disk — that's fine
-  }
+  // Remove from Storage (ignore error if file doesn't exist there)
+  await getSupabaseAdmin().storage.from(BUCKET).remove([filename]);
 
   return NextResponse.json({ success: true });
 }
 
-// PATCH — re-index an existing file already on disk
+// PATCH — re-index an existing file already in Supabase Storage
 export async function PATCH(req: NextRequest) {
   if (!isAuthed(req))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -94,10 +97,18 @@ export async function PATCH(req: NextRequest) {
   if (!filename)
     return NextResponse.json({ error: "filename required" }, { status: 400 });
 
-  const filePath = path.join(DOCS_DIR, filename);
-  if (!fs.existsSync(filePath))
-    return NextResponse.json({ error: "File not found on disk" }, { status: 404 });
+  // Download from Storage
+  const { data, error: downloadError } = await getSupabaseAdmin().storage
+    .from(BUCKET)
+    .download(filename);
 
-  const { totalChunks } = await indexPDF(filePath);
+  if (downloadError || !data)
+    return NextResponse.json(
+      { error: downloadError?.message ?? "File not found in storage" },
+      { status: 404 }
+    );
+
+  const buffer = Buffer.from(await data.arrayBuffer());
+  const { totalChunks } = await indexBuffer(buffer, filename);
   return NextResponse.json({ success: true, filename, chunks: totalChunks });
 }
