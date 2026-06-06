@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(mkdir:*)",
+      "Bash(node:*)",
+      "Bash(ls:*)",
+      "Bash(rm:*)"
     ]
   }
 }

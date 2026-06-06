@@ -17,8 +17,8 @@ lib/providers/anthropic.ts    → Claude implementation
 lib/providers/openai.ts       → OpenAI implementation
 lib/providers/gemini.ts       → Gemini implementation
 lib/providers/index.ts        → factory: getProvider()
-lib/indexer.ts                → PDF → chunks → embeddings → Supabase
-lib/retriever.ts              → query embedding → similarity search
+lib/indexer.ts                → indexPDF(): pdf-parse → tiktoken chunks (500t/50 overlap) → embed → Supabase upsert
+lib/retriever.ts              → getRelevantContext(): embed query → match_documents RPC → formatted string
 app/api/chat/route.ts         → RAG + streaming chat
 app/api/admin/upload/route.ts → PDF upload + auto-index
 app/page.tsx                  → chat UI
