@@ -33,5 +33,6 @@ scripts/index-docs.ts         → CLI to index all docs in /documents
 - Every new file gets a corresponding entry in this CLAUDE.md
 
 ## Env vars needed
-LLM_PROVIDER, ANTHROPIC_API_KEY, OPENAI_API_KEY, 
-GOOGLE_AI_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_SECRET
+LLM_PROVIDER, ANTHROPIC_API_KEY, OPENAI_API_KEY,
+GOOGLE_AI_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_SECRET,
+VOYAGE_API_KEY (required when LLM_PROVIDER=anthropic, for voyage-3 embeddings)
