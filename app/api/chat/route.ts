@@ -23,6 +23,24 @@ Cuando no tengas la respuesta:
   - Dudas sobre su primera semana o cultura del equipo → su líder de área directo
   - Dudas generales que no encajan en ninguna categoría → Chief of Staff`;
 
+// Returns true for messages that are conversational and don't need doc retrieval
+function isConversational(text: string): boolean {
+  const t = text.toLowerCase().trim();
+  if (t.length < 12) return true;
+  return /^(gracias|ok|okay|sí|si\b|no\b|entendido|perfecto|claro|genial|bien|excelente|hola|hey|hi\b)/.test(t)
+    || /\b(que (preguntas|dijiste|dije|hemos|he)|lo que (te|me|he|has)|recuerd|conversaci[oó]n|anterior(es)?)\b/.test(t);
+}
+
+function logUnanswered(query: string, target: string) {
+  supabase
+    .from("unanswered_queries")
+    .insert({ query, escalation_target: target })
+    .then(({ error }) => {
+      if (error) console.error("[chat] failed to log unanswered query:", error.message);
+      else console.log(`[chat] logged unanswered: "${query.slice(0, 60)}" → ${target}`);
+    });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { messages } = (await req.json()) as { messages: Message[] };
@@ -34,17 +52,14 @@ export async function POST(req: NextRequest) {
     const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
     const query = lastUserMessage?.content ?? "";
 
-    const context = await getRelevantContext(query, 10);
-    console.log(`[chat] query="${query.slice(0, 60)}" context_chars=${context.length}`);
+    // Skip retrieval for conversational messages
+    const skipRetrieval = isConversational(query);
+    const context = skipRetrieval ? "" : await getRelevantContext(query, 10);
+    console.log(`[chat] query="${query.slice(0, 60)}" context_chars=${context.length} skip_retrieval=${skipRetrieval}`);
 
-    // Log queries that returned zero context — definitive "not in docs" signal
-    if (!context && query) {
-      supabase
-        .from("unanswered_queries")
-        .insert({ query, escalation_target: "no_context" })
-        .then(({ error }) => {
-          if (error) console.error("[chat] failed to log unanswered query:", error.message);
-        });
+    // Log when zero context returned for a real query
+    if (!skipRetrieval && !context && query) {
+      logUnanswered(query, "no_context");
     }
 
     const systemWithContext = context
@@ -52,9 +67,25 @@ export async function POST(req: NextRequest) {
       : SYSTEM_PROMPT;
 
     const provider = getProvider();
-    const stream = await provider.chat(messages, systemWithContext);
+    const rawStream = await provider.chat(messages, systemWithContext);
 
-    return new NextResponse(stream, {
+    // Intercept stream to detect "No encontré" — the real unanswered signal
+    let fullResponse = "";
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        fullResponse += new TextDecoder().decode(chunk);
+        controller.enqueue(chunk);
+      },
+      flush() {
+        if (!skipRetrieval && query && fullResponse.toLowerCase().includes("no encontré")) {
+          logUnanswered(query, "no_answer_in_docs");
+        }
+      },
+    });
+
+    rawStream.pipeTo(writable);
+
+    return new NextResponse(readable, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Transfer-Encoding": "chunked",
