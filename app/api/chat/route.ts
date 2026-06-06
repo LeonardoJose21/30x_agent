@@ -23,12 +23,9 @@ Cuando no tengas la respuesta:
   - Dudas sobre su primera semana o cultura del equipo → su líder de área directo
   - Dudas generales que no encajan en ninguna categoría → Chief of Staff`;
 
-// Returns true for messages that are conversational and don't need doc retrieval
+// Skip retrieval for single-word inputs — they're never doc queries
 function isConversational(text: string): boolean {
-  const t = text.toLowerCase().trim();
-  if (t.length < 12) return true;
-  return /^(gracias|ok|okay|sí|si\b|no\b|entendido|perfecto|claro|genial|bien|excelente|hola|hey|hi\b)/.test(t)
-    || /\b(que (preguntas|dijiste|dije|hemos|he)|lo que (te|me|he|has)|recuerd|conversaci[oó]n|anterior(es)?)\b/.test(t);
+  return !text.trim().includes(" ");
 }
 
 function logUnanswered(query: string, target: string) {
