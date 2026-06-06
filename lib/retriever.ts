@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 import { getProvider } from "./providers";
 
-const CONFIDENCE_THRESHOLD = 0.5;
+const CONFIDENCE_THRESHOLD = 0.65;
 const FALLBACK_TOP_K = 14;
 const SMALL_CORPUS_LIMIT = 50;
 
