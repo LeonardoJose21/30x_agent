@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
         controller.enqueue(chunk);
       },
       flush() {
-        if (!skipRetrieval && query && fullResponse.toLowerCase().includes("no encontré")) {
+        if (!skipRetrieval && query && /no (he )?encontr[eéa]/i.test(fullResponse)) {
           logUnanswered(query, "no_answer_in_docs");
         }
       },
